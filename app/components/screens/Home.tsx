@@ -7,9 +7,9 @@ export default function Home({ onExpand }: { onExpand: (id: string) => void }) {
   return (
     <div className="grid h-full grid-cols-12 gap-6 p-8">
       <div className="col-span-12">
-        <h2 className="text-xs uppercase tracking-[0.3em] text-cyan-300/70">Overview</h2>
+        <h2 className="text-xs uppercase tracking-[0.3em] text-cyan-300/70">HOI Neural · Overview</h2>
         <h1 className="mt-1 text-4xl font-light tracking-tight text-white">
-          Welcome back, <span className="text-cyan-300">Commander</span>
+          Welcome to <span className="text-cyan-300">Highon Innovation</span>
         </h1>
       </div>
 

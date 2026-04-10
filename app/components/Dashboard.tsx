@@ -42,7 +42,7 @@ function getCardDetail(
     if (!k) return null;
     return {
       title: k.label,
-      subtitle: "KPI · Overview",
+      subtitle: "HOI Neural · KPI Signal",
       body: (
         <div>
           <div className="text-5xl font-light text-white">{k.value}</div>
@@ -54,10 +54,14 @@ function getCardDetail(
             {k.delta} vs. last period
           </div>
           <p className="mt-6 text-sm text-slate-400">
-            Snapshot of the <span className="text-cyan-300">{k.label}</span>{" "}
-            metric. Trending {k.trend === "up" ? "upward" : "downward"} against
+            HOI Neural is tracking{" "}
+            <span className="text-cyan-300">{k.label}</span> in real time and
+            sees it trending {k.trend === "up" ? "upward" : "downward"} against
             the previous window.
           </p>
+          <div className="mt-4 text-[10px] uppercase tracking-[0.3em] text-cyan-300/60">
+            Signal · Highon Innovation
+          </div>
         </div>
       ),
     };
@@ -67,13 +71,21 @@ function getCardDetail(
     if (!l) return null;
     return {
       title: l.name,
-      subtitle: `Lead · ${l.stage}`,
+      subtitle: `HOI Neural · Lead · ${l.stage}`,
       body: (
         <div className="space-y-3 text-sm text-slate-300">
           <Row label="Owner" value={l.owner} />
           <Row label="Stage" value={l.stage} />
           <Row label="Deal value" value={l.value} />
-          <Row label="Lead score" value={`${l.score} / 100`} />
+          <Row label="HOI score" value={`${l.score} / 100`} />
+          <p className="pt-2 text-xs text-slate-400">
+            HOI Neural rates <span className="text-cyan-300">{l.name}</span> at{" "}
+            {l.score >= 85 ? "high intent" : l.score >= 70 ? "warm intent" : "early intent"}{" "}
+            based on activity and stage velocity.
+          </p>
+          <div className="text-[10px] uppercase tracking-[0.3em] text-cyan-300/60">
+            Pipeline · Highon Innovation
+          </div>
         </div>
       ),
     };
@@ -83,7 +95,7 @@ function getCardDetail(
     if (!p) return null;
     return {
       title: p.name,
-      subtitle: `Project · ${p.status}`,
+      subtitle: `HOI Neural · Deployment · ${p.status}`,
       body: (
         <div className="space-y-3 text-sm text-slate-300">
           <Row label="Client" value={p.client} />
@@ -95,6 +107,13 @@ function getCardDetail(
               style={{ width: `${p.progress}%` }}
             />
           </div>
+          <p className="pt-2 text-xs text-slate-400">
+            HOI Neural is orchestrating <span className="text-cyan-300">{p.name}</span>{" "}
+            for {p.client}. Current health: {p.status.toLowerCase()}.
+          </p>
+          <div className="text-[10px] uppercase tracking-[0.3em] text-cyan-300/60">
+            Execution · Highon Innovation
+          </div>
         </div>
       ),
     };
@@ -104,12 +123,19 @@ function getCardDetail(
     if (!m) return null;
     return {
       title: m.name,
-      subtitle: `Team · ${m.role}`,
+      subtitle: `HOI Neural · Crew · ${m.role}`,
       body: (
         <div className="space-y-3 text-sm text-slate-300">
           <Row label="Role" value={m.role} />
           <Row label="Status" value={m.status} />
           <Row label="Utilization" value={`${m.load}%`} />
+          <p className="pt-2 text-xs text-slate-400">
+            HOI Neural flags <span className="text-cyan-300">{m.name}</span> as{" "}
+            {m.load > 85 ? "over-allocated — consider rebalancing" : m.load > 60 ? "healthy load" : "available for new work"}.
+          </p>
+          <div className="text-[10px] uppercase tracking-[0.3em] text-cyan-300/60">
+            People · Highon Innovation
+          </div>
         </div>
       ),
     };
@@ -117,12 +143,19 @@ function getCardDetail(
   if (id === "rev-total") {
     return {
       title: revenue.total,
-      subtitle: "Revenue · Year to date",
+      subtitle: "HOI Neural · Revenue · YTD",
       body: (
         <div className="space-y-3 text-sm text-slate-300">
           <Row label="Total" value={revenue.total} />
           <Row label="Target" value={revenue.target} />
           <Row label="Best month" value="Dec · $224K" />
+          <p className="pt-2 text-xs text-slate-400">
+            HOI Neural projects Highon Innovation to land within 12% of the
+            annual target based on current pacing.
+          </p>
+          <div className="text-[10px] uppercase tracking-[0.3em] text-cyan-300/60">
+            Financials · Highon Innovation
+          </div>
         </div>
       ),
     };
@@ -298,9 +331,19 @@ export default function Dashboard() {
 
       {/* Top bar */}
       <header className="pointer-events-none absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-8 pt-6">
-        <div className="pointer-events-auto">
-          <div className="text-[10px] uppercase tracking-[0.4em] text-cyan-300/60">HOI</div>
-          <div className="text-lg font-light tracking-widest text-white">COMMAND · V1</div>
+        <div className="pointer-events-auto flex items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo.png"
+            alt="Highon Innovation"
+            className="h-11 w-11 rounded-lg object-contain drop-shadow-[0_0_16px_rgba(90,209,255,0.45)]"
+          />
+          <div>
+            <div className="text-lg font-light tracking-widest text-white">HOI NEURAL</div>
+            <div className="text-[9px] uppercase tracking-[0.35em] text-cyan-300/70">
+              Powered by Highon Innovation
+            </div>
+          </div>
         </div>
         <nav className="pointer-events-auto flex gap-2 rounded-full border border-white/10 bg-white/[0.04] p-1.5 backdrop-blur-md">
           {SCREENS.map((s, i) => (
@@ -358,15 +401,26 @@ export default function Dashboard() {
               onClick={(e) => e.stopPropagation()}
               className="relative w-[min(720px,92vw)] rounded-3xl border border-cyan-300/30 bg-slate-950/85 p-10 shadow-[0_0_100px_rgba(90,209,255,0.3)]"
             >
-              <div className="text-[10px] uppercase tracking-[0.4em] text-cyan-300/70">
-                Welcome to HOI
+              <div className="flex items-center gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/logo.png"
+                  alt="Highon Innovation"
+                  className="h-12 w-12 rounded-lg object-contain drop-shadow-[0_0_18px_rgba(90,209,255,0.5)]"
+                />
+                <div className="text-[10px] uppercase tracking-[0.4em] text-cyan-300/70">
+                  HOI Neural
+                  <div className="text-[9px] tracking-[0.3em] text-slate-400">
+                    Powered by Highon Innovation
+                  </div>
+                </div>
               </div>
-              <h2 className="mt-2 text-3xl font-light tracking-wide text-white">
-                Control this dashboard with your hand
+              <h2 className="mt-5 text-3xl font-light tracking-wide text-white">
+                Control HOI Neural with your hand
               </h2>
               <p className="mt-2 text-sm text-slate-400">
                 Allow camera access, then hold your hand ~40 cm from the screen
-                in good light. Use the 5 gestures below — or the keyboard.
+                in good light. Use the 5 neural gestures below — or the keyboard.
               </p>
 
               <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2">

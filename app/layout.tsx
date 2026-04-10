@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "HOI Command V1",
-  description: "Gesture-controlled futuristic dashboard demo.",
+  title: "HOI Neural — Highon Innovation",
+  description: "HOI Neural by Highon Innovation — gesture-controlled neural command dashboard.",
 };
 
 export default function RootLayout({
