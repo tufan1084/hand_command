@@ -1,0 +1,285 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import dynamic from "next/dynamic";
+
+import { useHandTracking } from "../hooks/useHandTracking";
+import { useGestures, type GestureEvent } from "../hooks/useGestures";
+import { useKeyboardFallback } from "../hooks/useKeyboardFallback";
+
+import Home from "./screens/Home";
+import Leads from "./screens/Leads";
+import Projects from "./screens/Projects";
+import Revenue from "./screens/Revenue";
+import Team from "./screens/Team";
+
+// Three.js background is client-only.
+const ThreeBackground = dynamic(() => import("./ThreeBackground"), { ssr: false });
+const HandOverlay = dynamic(() => import("./HandOverlay"), { ssr: false });
+
+const SCREENS = [
+  { id: "home",     label: "Home" },
+  { id: "leads",    label: "Leads" },
+  { id: "projects", label: "Projects" },
+  { id: "revenue",  label: "Revenue" },
+  { id: "team",     label: "Team / AI" },
+] as const;
+
+type ScreenId = (typeof SCREENS)[number]["id"];
+
+export default function Dashboard() {
+  const [screen, setScreen] = useState<ScreenId>("home");
+  const [expandedCard, setExpandedCard] = useState<string | null>(null);
+  const [focusedCard, setFocusedCard] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  const screenIdx = SCREENS.findIndex((s) => s.id === screen);
+
+  // Navigation helpers. Changing screen ALWAYS clears any stale focus/expand
+  // so the new screen starts clean — otherwise a pinch on the next screen
+  // could re-open a modal for a card id that no longer exists there.
+  const goNext = useCallback(() => {
+    setScreen((s) => {
+      const i = SCREENS.findIndex((x) => x.id === s);
+      return SCREENS[(i + 1) % SCREENS.length].id;
+    });
+    setExpandedCard(null);
+    setFocusedCard(null);
+  }, []);
+
+  const goPrev = useCallback(() => {
+    setScreen((s) => {
+      const i = SCREENS.findIndex((x) => x.id === s);
+      return SCREENS[(i - 1 + SCREENS.length) % SCREENS.length].id;
+    });
+    setExpandedCard(null);
+    setFocusedCard(null);
+  }, []);
+
+  const goHome = useCallback(() => {
+    setScreen("home");
+    setExpandedCard(null);
+    setFocusedCard(null);
+  }, []);
+
+  const closePanel = useCallback(() => setExpandedCard(null), []);
+
+  const selectFocused = useCallback(() => {
+    if (focusedCard) setExpandedCard(focusedCard);
+  }, [focusedCard]);
+
+  // Hand tracking + gestures. Note: we pass the ref (not a value) into
+  // useGestures so that per-frame landmark updates don't trigger renders.
+  const { videoRef, status, landmarksRef } = useHandTracking();
+
+  // Helper: given a normalized pointer from MediaPipe (mirrored display),
+  // find the <element data-card-id="..."> under the finger, if any.
+  const cardIdUnderPointer = useCallback(
+    (p: { x: number; y: number }): string | null => {
+      const x = (1 - p.x) * window.innerWidth;
+      const y = p.y * window.innerHeight;
+      const el = document.elementFromPoint(x, y) as HTMLElement | null;
+      const card = el?.closest("[data-card-id]") as HTMLElement | null;
+      return card?.getAttribute("data-card-id") ?? null;
+    },
+    []
+  );
+
+  const onGesture = useCallback(
+    (e: GestureEvent) => {
+      switch (e.type) {
+        case "swipe_left":  goNext(); setFlash("Swipe ▶"); break;
+        case "swipe_right": goPrev(); setFlash("◀ Swipe"); break;
+
+        case "pinch": {
+          // Resolve the card directly from the pointer position on pinch —
+          // the user can just point + pinch in one motion, no pre-focus
+          // required. Fall back to the existing focusedCard if the pinch
+          // landed on empty space (e.g. pointer drifted off the card).
+          const idUnder = cardIdUnderPointer(e.pointer);
+          const target = idUnder ?? focusedCard;
+          if (target) {
+            setExpandedCard(target);
+            setFocusedCard(target);
+            setFlash("Pinch · Expand");
+          } else {
+            setFlash("Pinch · (no card)");
+          }
+          break;
+        }
+
+        case "fist":      closePanel(); setFlash("Fist · Close"); break;
+        case "open_palm": goHome();     setFlash("Palm · Home"); break;
+
+        case "point_hold": {
+          // Continuous focus tracking — fired ~10 Hz while the user is
+          // holding a point after the initial dwell. Highlight follows the
+          // finger across cards.
+          const id = cardIdUnderPointer(e.pointer);
+          setFocusedCard((prev) => (prev === id ? prev : id));
+          break;
+        }
+      }
+    },
+    [goNext, goPrev, goHome, closePanel, cardIdUnderPointer, focusedCard]
+  );
+
+  const gesture = useGestures(landmarksRef, onGesture);
+
+  // Keyboard fallback
+  useKeyboardFallback({
+    onNext: goNext,
+    onPrev: goPrev,
+    onSelect: selectFocused,
+    onClose: closePanel,
+    onHome: goHome,
+  });
+
+  // Flash toast auto-dismiss
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(null), 1100);
+    return () => clearTimeout(t);
+  }, [flash]);
+
+  // Apply focused attribute to cards so CSS reacts
+  useEffect(() => {
+    const nodes = document.querySelectorAll<HTMLElement>("[data-card-id]");
+    nodes.forEach((n) => {
+      if (n.getAttribute("data-card-id") === focusedCard) {
+        n.setAttribute("data-focused", "true");
+      } else {
+        n.removeAttribute("data-focused");
+      }
+    });
+  }, [focusedCard, screen]);
+
+  const onExpand = useCallback((id: string) => setExpandedCard(id), []);
+
+  const ScreenComponent = useMemo(() => {
+    switch (screen) {
+      case "home":     return <Home onExpand={onExpand} />;
+      case "leads":    return <Leads onExpand={onExpand} />;
+      case "projects": return <Projects onExpand={onExpand} />;
+      case "revenue":  return <Revenue onExpand={onExpand} />;
+      case "team":     return <Team onExpand={onExpand} />;
+    }
+  }, [screen, onExpand]);
+
+  return (
+    <div className="relative flex h-screen w-screen overflow-hidden font-sans text-white">
+      <ThreeBackground />
+
+      {/* Top bar */}
+      <header className="pointer-events-none absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-8 pt-6">
+        <div className="pointer-events-auto">
+          <div className="text-[10px] uppercase tracking-[0.4em] text-cyan-300/60">HOI</div>
+          <div className="text-lg font-light tracking-widest text-white">COMMAND · V1</div>
+        </div>
+        <nav className="pointer-events-auto flex gap-2 rounded-full border border-white/10 bg-white/[0.04] p-1.5 backdrop-blur-md">
+          {SCREENS.map((s, i) => (
+            <button
+              key={s.id}
+              onClick={() => { setScreen(s.id); setExpandedCard(null); }}
+              className={`rounded-full px-4 py-2 text-xs uppercase tracking-widest transition ${
+                i === screenIdx
+                  ? "bg-cyan-300/20 text-cyan-200 shadow-[0_0_20px_rgba(90,209,255,0.35)]"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </nav>
+        <div className="pointer-events-auto text-right text-[11px] uppercase tracking-widest text-slate-400">
+          <div>{new Date().toLocaleDateString()}</div>
+          <div className="text-cyan-300/70">SYSTEM ONLINE</div>
+        </div>
+      </header>
+
+      {/* Main screen area */}
+      <main className="relative z-10 mt-24 flex-1">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={screen}
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -40 }}
+            transition={{ duration: 0.45, ease: "easeOut" }}
+            className="h-[calc(100vh-7rem)]"
+          >
+            {ScreenComponent}
+          </motion.div>
+        </AnimatePresence>
+      </main>
+
+      {/* Expanded card modal */}
+      <AnimatePresence>
+        {expandedCard && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-md"
+            onClick={closePanel}
+          >
+            <motion.div
+              initial={{ scale: 0.92, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.92, y: 20 }}
+              transition={{ type: "spring", stiffness: 220, damping: 24 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-[min(640px,92vw)] rounded-3xl border border-cyan-300/30 bg-slate-950/80 p-10 shadow-[0_0_80px_rgba(90,209,255,0.25)]"
+            >
+              <div className="text-[10px] uppercase tracking-[0.4em] text-cyan-300/70">Detail</div>
+              <h2 className="mt-2 text-3xl font-light text-white">{expandedCard}</h2>
+              <p className="mt-4 text-slate-300">
+                Expanded view for <span className="text-cyan-300">{expandedCard}</span>.
+                Use <kbd className="rounded bg-white/10 px-2 py-0.5 text-xs">Esc</kbd> or
+                make a fist to close.
+              </p>
+              <div className="mt-8 h-32 rounded-xl border border-white/10 bg-white/[0.03]" />
+              <button
+                onClick={closePanel}
+                className="mt-6 rounded-full border border-cyan-300/40 bg-cyan-300/10 px-6 py-2 text-sm uppercase tracking-widest text-cyan-200 hover:bg-cyan-300/20"
+              >
+                Close
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Flash toast */}
+      <AnimatePresence>
+        {flash && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-8 left-1/2 z-50 -translate-x-1/2 rounded-full border border-cyan-300/30 bg-slate-950/80 px-6 py-2 text-xs uppercase tracking-[0.3em] text-cyan-200 shadow-[0_0_30px_rgba(90,209,255,0.35)] backdrop-blur-md"
+          >
+            {flash}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Hand overlay (corner cam + pointer) */}
+      <HandOverlay
+        videoRef={videoRef}
+        status={status}
+        gesture={gesture.current}
+        pointer={gesture.pointer}
+      />
+
+      {/* Help strip */}
+      <div className="pointer-events-none fixed bottom-6 left-6 z-30 rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-[10px] uppercase tracking-widest text-slate-400 backdrop-blur-md">
+        <div><span className="text-cyan-300">Swipe</span> · change screen</div>
+        <div><span className="text-cyan-300">Pinch</span> · select &nbsp; <span className="text-cyan-300">Fist</span> · close</div>
+        <div><span className="text-cyan-300">Palm</span> · home &nbsp; <span className="text-cyan-300">Point+Hold</span> · focus</div>
+        <div className="mt-1 text-slate-500">Keys: ← → · Enter · Esc · H</div>
+      </div>
+    </div>
+  );
+}
