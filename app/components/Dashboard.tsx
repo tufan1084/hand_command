@@ -33,6 +33,7 @@ export default function Dashboard() {
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [focusedCard, setFocusedCard] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const [showIntro, setShowIntro] = useState(true);
 
   const screenIdx = SCREENS.findIndex((s) => s.id === screen);
 
@@ -86,8 +87,11 @@ export default function Dashboard() {
     []
   );
 
+  const dismissIntro = useCallback(() => setShowIntro(false), []);
+
   const onGesture = useCallback(
     (e: GestureEvent) => {
+      if (showIntro && e.type !== "point_hold") setShowIntro(false);
       switch (e.type) {
         case "swipe_left":  goNext(); setFlash("Swipe ▶"); break;
         case "swipe_right": goPrev(); setFlash("◀ Swipe"); break;
@@ -122,8 +126,16 @@ export default function Dashboard() {
         }
       }
     },
-    [goNext, goPrev, goHome, closePanel, cardIdUnderPointer, focusedCard]
+    [goNext, goPrev, goHome, closePanel, cardIdUnderPointer, focusedCard, showIntro]
   );
+
+  // Dismiss intro on any keypress too.
+  useEffect(() => {
+    if (!showIntro) return;
+    const onKey = () => setShowIntro(false);
+    window.addEventListener("keydown", onKey, { once: true });
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showIntro]);
 
   const gesture = useGestures(landmarksRef, onGesture);
 
@@ -213,6 +225,78 @@ export default function Dashboard() {
           </motion.div>
         </AnimatePresence>
       </main>
+
+      {/* First-load intro / instructions overlay */}
+      <AnimatePresence>
+        {showIntro && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.4 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xl"
+            onClick={dismissIntro}
+          >
+            <motion.div
+              initial={{ scale: 0.92, y: 24, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.92, y: 24, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 200, damping: 24 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-[min(720px,92vw)] rounded-3xl border border-cyan-300/30 bg-slate-950/85 p-10 shadow-[0_0_100px_rgba(90,209,255,0.3)]"
+            >
+              <div className="text-[10px] uppercase tracking-[0.4em] text-cyan-300/70">
+                Welcome to HOI
+              </div>
+              <h2 className="mt-2 text-3xl font-light tracking-wide text-white">
+                Control this dashboard with your hand
+              </h2>
+              <p className="mt-2 text-sm text-slate-400">
+                Allow camera access, then hold your hand ~40 cm from the screen
+                in good light. Use the 5 gestures below — or the keyboard.
+              </p>
+
+              <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {[
+                  { g: "Swipe L / R", act: "Change screen", k: "← →" },
+                  { g: "Pinch", act: "Select / expand card", k: "Enter" },
+                  { g: "Point + Hold", act: "Focus card under finger", k: "Hover" },
+                  { g: "Closed Fist", act: "Close panel", k: "Esc" },
+                  { g: "Open Palm", act: "Go home", k: "H" },
+                ].map((row) => (
+                  <div
+                    key={row.g}
+                    className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3"
+                  >
+                    <div>
+                      <div className="text-sm text-cyan-200">{row.g}</div>
+                      <div className="text-[11px] uppercase tracking-widest text-slate-400">
+                        {row.act}
+                      </div>
+                    </div>
+                    <kbd className="rounded bg-white/10 px-2 py-1 text-[10px] uppercase tracking-widest text-slate-300">
+                      {row.k}
+                    </kbd>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-8 flex items-center justify-between">
+                <div className="text-[11px] uppercase tracking-widest text-slate-500">
+                  Camera status:{" "}
+                  <span className="text-cyan-300">{status}</span>
+                </div>
+                <button
+                  onClick={dismissIntro}
+                  className="rounded-full border border-cyan-300/40 bg-cyan-300/10 px-6 py-2 text-xs uppercase tracking-[0.3em] text-cyan-200 hover:bg-cyan-300/20"
+                >
+                  Begin
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Expanded card modal */}
       <AnimatePresence>
