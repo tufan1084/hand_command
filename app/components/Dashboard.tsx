@@ -13,6 +13,7 @@ import Leads from "./screens/Leads";
 import Projects from "./screens/Projects";
 import Revenue from "./screens/Revenue";
 import Team from "./screens/Team";
+import { kpis, leads, projects, team, revenue } from "../lib/dummyData";
 
 // Three.js background is client-only.
 const ThreeBackground = dynamic(() => import("./ThreeBackground"), { ssr: false });
@@ -27,6 +28,118 @@ const SCREENS = [
 ] as const;
 
 type ScreenId = (typeof SCREENS)[number]["id"];
+
+/**
+ * Resolve a card id (e.g. "kpi-2", "lead-4", "project-1", "rev-total",
+ * "team-3") into a title + body suitable for the expanded modal. The id
+ * format is set by each screen when it renders data-card-id.
+ */
+function getCardDetail(
+  id: string
+): { title: string; subtitle: string; body: React.ReactNode } | null {
+  if (id.startsWith("kpi-")) {
+    const k = kpis[Number(id.split("-")[1])];
+    if (!k) return null;
+    return {
+      title: k.label,
+      subtitle: "KPI · Overview",
+      body: (
+        <div>
+          <div className="text-5xl font-light text-white">{k.value}</div>
+          <div
+            className={`mt-2 text-sm ${
+              k.trend === "up" ? "text-emerald-300" : "text-rose-300"
+            }`}
+          >
+            {k.delta} vs. last period
+          </div>
+          <p className="mt-6 text-sm text-slate-400">
+            Snapshot of the <span className="text-cyan-300">{k.label}</span>{" "}
+            metric. Trending {k.trend === "up" ? "upward" : "downward"} against
+            the previous window.
+          </p>
+        </div>
+      ),
+    };
+  }
+  if (id.startsWith("lead-")) {
+    const l = leads.find((x) => x.id === Number(id.split("-")[1]));
+    if (!l) return null;
+    return {
+      title: l.name,
+      subtitle: `Lead · ${l.stage}`,
+      body: (
+        <div className="space-y-3 text-sm text-slate-300">
+          <Row label="Owner" value={l.owner} />
+          <Row label="Stage" value={l.stage} />
+          <Row label="Deal value" value={l.value} />
+          <Row label="Lead score" value={`${l.score} / 100`} />
+        </div>
+      ),
+    };
+  }
+  if (id.startsWith("project-")) {
+    const p = projects.find((x) => x.id === Number(id.split("-")[1]));
+    if (!p) return null;
+    return {
+      title: p.name,
+      subtitle: `Project · ${p.status}`,
+      body: (
+        <div className="space-y-3 text-sm text-slate-300">
+          <Row label="Client" value={p.client} />
+          <Row label="Status" value={p.status} />
+          <Row label="Progress" value={`${p.progress}%`} />
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+            <div
+              className="h-full bg-cyan-300"
+              style={{ width: `${p.progress}%` }}
+            />
+          </div>
+        </div>
+      ),
+    };
+  }
+  if (id.startsWith("team-")) {
+    const m = team.find((x) => x.id === Number(id.split("-")[1]));
+    if (!m) return null;
+    return {
+      title: m.name,
+      subtitle: `Team · ${m.role}`,
+      body: (
+        <div className="space-y-3 text-sm text-slate-300">
+          <Row label="Role" value={m.role} />
+          <Row label="Status" value={m.status} />
+          <Row label="Utilization" value={`${m.load}%`} />
+        </div>
+      ),
+    };
+  }
+  if (id === "rev-total") {
+    return {
+      title: revenue.total,
+      subtitle: "Revenue · Year to date",
+      body: (
+        <div className="space-y-3 text-sm text-slate-300">
+          <Row label="Total" value={revenue.total} />
+          <Row label="Target" value={revenue.target} />
+          <Row label="Best month" value="Dec · $224K" />
+        </div>
+      ),
+    };
+  }
+  return null;
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between border-b border-white/5 pb-2">
+      <span className="text-[11px] uppercase tracking-widest text-slate-500">
+        {label}
+      </span>
+      <span className="text-white">{value}</span>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const [screen, setScreen] = useState<ScreenId>("home");
@@ -316,14 +429,31 @@ export default function Dashboard() {
               onClick={(e) => e.stopPropagation()}
               className="w-[min(640px,92vw)] rounded-3xl border border-cyan-300/30 bg-slate-950/80 p-10 shadow-[0_0_80px_rgba(90,209,255,0.25)]"
             >
-              <div className="text-[10px] uppercase tracking-[0.4em] text-cyan-300/70">Detail</div>
-              <h2 className="mt-2 text-3xl font-light text-white">{expandedCard}</h2>
-              <p className="mt-4 text-slate-300">
-                Expanded view for <span className="text-cyan-300">{expandedCard}</span>.
-                Use <kbd className="rounded bg-white/10 px-2 py-0.5 text-xs">Esc</kbd> or
-                make a fist to close.
-              </p>
-              <div className="mt-8 h-32 rounded-xl border border-white/10 bg-white/[0.03]" />
+              {(() => {
+                const detail = expandedCard ? getCardDetail(expandedCard) : null;
+                return (
+                  <>
+                    <div className="text-[10px] uppercase tracking-[0.4em] text-cyan-300/70">
+                      {detail?.subtitle ?? "Detail"}
+                    </div>
+                    <h2 className="mt-2 text-3xl font-light text-white">
+                      {detail?.title ?? expandedCard}
+                    </h2>
+                    <div className="mt-6">
+                      {detail?.body ?? (
+                        <p className="text-slate-400">No details available.</p>
+                      )}
+                    </div>
+                    <p className="mt-6 text-xs text-slate-500">
+                      Press{" "}
+                      <kbd className="rounded bg-white/10 px-2 py-0.5 text-[10px]">
+                        Esc
+                      </kbd>{" "}
+                      or make a fist to close.
+                    </p>
+                  </>
+                );
+              })()}
               <button
                 onClick={closePanel}
                 className="mt-6 rounded-full border border-cyan-300/40 bg-cyan-300/10 px-6 py-2 text-sm uppercase tracking-widest text-cyan-200 hover:bg-cyan-300/20"

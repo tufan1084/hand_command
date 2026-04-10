@@ -48,9 +48,31 @@ const HOLD_FRAMES = 5;
 const DISCRETE_COOLDOWN = 900;
 const POINT_HOLD_MS = 650;
 
+// Open palm → Home is triggered by the MOTION of opening the hand, i.e. a
+// fist → open_palm transition. A raw open palm (no preceding fist) does
+// NOT fire home. This is the window after a fist during which an opening
+// motion is valid.
+const OPENING_WINDOW_MS = 1200;
+
+// After a swipe fires, ignore static gesture events for this long. Without
+// this, swiping with an open hand also fires "open_palm" a few frames later
+// and sends you to Home, overriding the screen change.
+const POST_SWIPE_LOCKOUT = 1500;
+
+// Static gestures only count while the hand is reasonably still. This is
+// the max normalized pointer displacement (per frame) for a pose to be
+// considered "steady". Prevents fast-moving hands from accidentally
+// classifying as open_palm / fist / pinch mid-swipe.
+const STEADY_MAX_DELTA = 0.025;
+
 // Pointer jitter below this threshold (in normalized coords) is ignored for
 // display purposes. Prevents a re-render on every tiny finger wiggle.
 const POINTER_EPSILON = 0.004;
+
+// EMA smoothing factor for pointer. 0 = no smoothing (raw), 1 = frozen.
+// 0.55 gives a noticeably steadier cursor/highlight without adding lag that
+// would wreck swipe detection (swipe uses raw samples, not smoothed).
+const POINTER_SMOOTH = 0.55;
 
 export function useGestures(
   landmarksRef: MutableRefObject<Landmark[] | null>,
@@ -69,6 +91,17 @@ export function useGestures(
   const lastFireRef = useRef<Record<string, number>>({});
   const pointStartRef = useRef<number | null>(null);
   const swipeRef = useRef(new SwipeDetector());
+  const smoothPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const lastSwipeAtRef = useRef(0);
+  const lastRawPointerRef = useRef<{ x: number; y: number } | null>(null);
+  // After a swipe, this holds the label that was active at swipe time.
+  // That exact label is blocked from firing until the label has transitioned
+  // to something else at least once — i.e. the user must ACTIVELY re-form the
+  // pose, not just hold their existing open hand still after the swipe.
+  const blockedLabelRef = useRef<GestureLabel | null>(null);
+  // Timestamp of the last frame we observed a FIST. Used to detect the
+  // fist → open_palm "opening" motion that fires home.
+  const lastFistAtRef = useRef<number>(0);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 
@@ -91,6 +124,10 @@ export function useGestures(
         heldLabelRef.current = "none";
         pointStartRef.current = null;
         swipeRef.current.reset();
+        smoothPointerRef.current = null;
+        lastRawPointerRef.current = null;
+        blockedLabelRef.current = null;
+        lastFistAtRef.current = 0;
 
         const last = lastDisplayRef.current;
         if (last.current !== "none" || last.pointer !== null) {
@@ -106,20 +143,78 @@ export function useGestures(
         return;
       }
 
-      const { label, pointer } = classifyStatic(lm);
+      const { label, pointer: rawPointer } = classifyStatic(lm);
 
-      // --- Swipe detection (independent of static label) ---
-      const swipe = swipeRef.current.push(pointer);
+      // Pointer smoothing (EMA) — used for display, focus tracking, and
+      // the pinch-under-pointer lookup. Swipe detection still gets the RAW
+      // pointer so smoothing lag doesn't damp real swipe motion.
+      const prev = smoothPointerRef.current;
+      const pointer = prev
+        ? {
+            x: prev.x * POINTER_SMOOTH + rawPointer.x * (1 - POINTER_SMOOTH),
+            y: prev.y * POINTER_SMOOTH + rawPointer.y * (1 - POINTER_SMOOTH),
+          }
+        : rawPointer;
+      smoothPointerRef.current = pointer;
+
+      // --- Swipe detection (independent of static label, uses RAW pointer) ---
+      const swipe = swipeRef.current.push(rawPointer);
       if (swipe === "swipe_left" || swipe === "swipe_right") {
+        lastSwipeAtRef.current = performance.now();
+        // Kill any in-progress static hold — otherwise the open hand that
+        // just swiped would immediately fire open_palm → goHome.
+        holdCountRef.current = 0;
+        heldLabelRef.current = "none";
+        // Remember which pose the user was holding WHILE swiping (usually
+        // open_palm). That exact label is now blocked from firing again
+        // until the user's hand visibly changes pose — this prevents the
+        // "hand coasts to a stop still in open palm → fires home" bug.
+        blockedLabelRef.current = label;
         onEventRef.current?.({ type: swipe });
       }
 
+      // --- Hand-motion guard for static poses ---
+      // Fast-moving hands shouldn't count toward a static gesture hold.
+      // Compute per-frame displacement from the previous RAW pointer.
+      const prevRaw = lastRawPointerRef.current;
+      const delta = prevRaw
+        ? Math.hypot(rawPointer.x - prevRaw.x, rawPointer.y - prevRaw.y)
+        : 0;
+      lastRawPointerRef.current = rawPointer;
+      const isSteady = delta < STEADY_MAX_DELTA;
+
       // --- Static gesture hold tracking ---
-      if (label === heldLabelRef.current) {
+      // Only accumulate hold frames when (a) the hand is steady and (b) no
+      // swipe just fired. Point is exempt from the steadiness requirement —
+      // it has its own dwell timer and a pointing finger usually moves.
+      const inSwipeLockout =
+        performance.now() - lastSwipeAtRef.current < POST_SWIPE_LOCKOUT;
+
+      // If we had blocked a label (usually open_palm after a swipe), clear
+      // the block as soon as we observe a DIFFERENT label. That's the user
+      // visibly changing their pose — now they can reuse the pose again.
+      if (
+        blockedLabelRef.current !== null &&
+        label !== blockedLabelRef.current
+      ) {
+        blockedLabelRef.current = null;
+      }
+      const isBlocked = blockedLabelRef.current === label;
+
+      const canAccumulate =
+        label === "point" || (isSteady && !inSwipeLockout && !isBlocked);
+
+      // Track the last time we saw a fist — this is the anchor for the
+      // fist → open_palm "opening motion" that triggers home.
+      if (label === "fist") {
+        lastFistAtRef.current = performance.now();
+      }
+
+      if (label === heldLabelRef.current && canAccumulate) {
         holdCountRef.current += 1;
-      } else {
+      } else if (label !== heldLabelRef.current) {
         heldLabelRef.current = label;
-        holdCountRef.current = 1;
+        holdCountRef.current = canAccumulate ? 1 : 0;
         if (label !== "point") {
           pointStartRef.current = null;
         }
@@ -129,14 +224,38 @@ export function useGestures(
         if (label === "pinch" || label === "fist" || label === "open_palm") {
           const now = performance.now();
           const lastAt = lastFireRef.current[label] || 0;
-          if (now - lastAt > DISCRETE_COOLDOWN) {
-            lastFireRef.current[label] = now;
-            // Pinch carries the pointer so the consumer can resolve the card
-            // under the finger directly — no "focus first, then pinch" dance.
-            if (label === "pinch") {
-              onEventRef.current?.({ type: "pinch", pointer });
-            } else {
-              onEventRef.current?.({ type: label } as GestureEvent);
+          if (now - lastAt > DISCRETE_COOLDOWN && !inSwipeLockout) {
+            // Open palm → Home requires the OPENING MOTION: the user's
+            // hand must have been in a fist within the last
+            // OPENING_WINDOW_MS. A static open palm with no preceding
+            // fist is ignored entirely. This matches the user intent:
+            // "home" is the act of opening a closed hand.
+            let allowFire = true;
+            if (label === "open_palm") {
+              const fistAge = now - lastFistAtRef.current;
+              if (
+                lastFistAtRef.current === 0 ||
+                fistAge > OPENING_WINDOW_MS
+              ) {
+                allowFire = false;
+                // Consume the hold and wait out a cooldown so we don't
+                // spin re-checking this every frame.
+                lastFireRef.current[label] = now;
+              } else {
+                // Consume the fist anchor so one fist → open_palm fires
+                // home exactly once. The user has to make a fresh fist
+                // before they can trigger home again.
+                lastFistAtRef.current = 0;
+              }
+            }
+
+            if (allowFire) {
+              lastFireRef.current[label] = now;
+              if (label === "pinch") {
+                onEventRef.current?.({ type: "pinch", pointer });
+              } else {
+                onEventRef.current?.({ type: label } as GestureEvent);
+              }
             }
           }
         }
